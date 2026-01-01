@@ -332,6 +332,14 @@
             padding: 12px 28px;
         }
         
+        .btn-warning {
+            background: linear-gradient(135deg, #fbbc04 0%, #b06000 100%);
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            padding: 12px 28px;
+        }
+        
         .progress {
             height: 12px;
             margin-top: 15px;
@@ -362,6 +370,12 @@
             background-color: #fce8e6;
             color: #c5221f;
             border-left: 4px solid #ea4335;
+        }
+        
+        .status-warning {
+            background-color: #fef7e0;
+            color: #b06000;
+            border-left: 4px solid #fbbc04;
         }
         
         .uploaded-files {
@@ -498,6 +512,16 @@
         .pagination-buttons .btn {
             margin: 0 5px;
         }
+        
+        .storage-indicator {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 8px;
+            background: #e8f0fe;
+            text-align: center;
+            font-weight: 600;
+            color: #1a73e8;
+        }
     </style>
 </head>
 <body>
@@ -542,6 +566,11 @@
             
             <div class="progress" id="uploadProgress" style="display: none;">
                 <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+            </div>
+            
+            <!-- Storage Status Indicator -->
+            <div id="storageStatus" class="storage-indicator" style="display: none;">
+                <i class="fas fa-database"></i> <span id="storagePercent">0%</span> of browser storage used
             </div>
         </div>
         
@@ -629,6 +658,9 @@
                 <button onclick="exportAllData()" class="btn btn-success">
                     <i class="fas fa-file-export"></i> Export All Airport Data
                 </button>
+                <button onclick="debugStorage()" class="btn btn-warning">
+                    <i class="fas fa-bug"></i> Debug Storage
+                </button>
                 <button onclick="clearAllData()" class="btn btn-danger">
                     <i class="fas fa-trash-alt"></i> Clear All Data
                 </button>
@@ -688,6 +720,8 @@
         const uploadStatus = document.getElementById('uploadStatus');
         const uploadProgress = document.getElementById('uploadProgress');
         const progressBar = uploadProgress.querySelector('.progress-bar');
+        const storageStatus = document.getElementById('storageStatus');
+        const storagePercent = document.getElementById('storagePercent');
 
         // ==================== Initialization ====================
         document.addEventListener('DOMContentLoaded', function() {
@@ -711,6 +745,7 @@
                     updateDashboardStats();
                     updateCharts();
                     updateCompleteDataTable();
+                    loadUploadedFilesList();
                     showStatus('Previous airport data loaded successfully!', 'success');
                     
                     // Update last updated time
@@ -718,6 +753,9 @@
                     if (lastSave) {
                         document.getElementById('lastUpdated').textContent = new Date(lastSave).toLocaleString();
                     }
+                    
+                    // Update storage status
+                    updateStorageStatus();
                 } catch (e) {
                     console.error('Error loading saved airport data:', e);
                     showStatus('Error loading previous data. Starting fresh.', 'error');
@@ -726,6 +764,10 @@
 
             // Set up event listeners
             setupEventListeners();
+            
+            // Show storage status
+            storageStatus.style.display = 'block';
+            updateStorageStatus();
         });
 
         function setupEventListeners() {
@@ -749,6 +791,9 @@
                 const files = e.dataTransfer.files;
                 handleFiles(files);
             });
+            
+            // Save before page unload
+            window.addEventListener('beforeunload', saveDataToStorage);
         }
 
         // ==================== File Handling ====================
@@ -766,6 +811,9 @@
             let processed = 0;
             const totalFiles = files.length;
             
+            // Save a backup before processing
+            saveDataToStorage();
+            
             Array.from(files).forEach(file => {
                 if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
                     processAirportCSVFile(file).then(() => {
@@ -773,13 +821,16 @@
                         const progress = (processed / totalFiles) * 100;
                         progressBar.style.width = `${progress}%`;
                         
+                        // Save after each successful file processing
+                        saveDataToStorage();
+                        updateStorageStatus();
+                        
                         if (processed === totalFiles) {
                             setTimeout(() => {
                                 uploadProgress.style.display = 'none';
                                 progressBar.style.width = '0%';
                             }, 500);
                             
-                            saveDataToStorage();
                             showStatus(`Successfully processed ${totalFiles} airport data file(s)`, 'success');
                             
                             // Update last updated time
@@ -826,6 +877,7 @@
         function addFileToList(filename, rowCount) {
             const fileItem = document.createElement('div');
             fileItem.className = 'file-item';
+            fileItem.setAttribute('data-filename', filename);
             fileItem.innerHTML = `
                 <div class="file-info">
                     <div class="file-icon">
@@ -839,6 +891,109 @@
                 <span class="badge-uploaded">✓ Uploaded</span>
             `;
             fileList.appendChild(fileItem);
+            
+            // Save uploaded files list
+            saveUploadedFilesList();
+        }
+
+        function loadUploadedFilesList() {
+            // Clear existing list
+            fileList.innerHTML = '';
+            
+            // Recreate file items from stored data
+            const cleanlinessData = airportData.cleanlinessData;
+            const terminalData = airportData.terminalData;
+            const gateData = airportData.gateData;
+            const maintenanceData = airportData.maintenanceData;
+            const staffData = airportData.staffData;
+            const otherData = airportData.otherData;
+            
+            // Create file entries for each data type with records
+            if (cleanlinessData.length > 0) {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <div class="file-info">
+                        <div class="file-icon">
+                            <i class="fas fa-file-csv"></i>
+                        </div>
+                        <div class="file-details">
+                            <h5>cleanliness_data.csv</h5>
+                            <small>${cleanlinessData.length.toLocaleString()} records</small>
+                        </div>
+                    </div>
+                    <span class="badge-uploaded">✓ Loaded</span>
+                `;
+                fileList.appendChild(fileItem);
+            }
+            
+            if (terminalData.length > 0) {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <div class="file-info">
+                        <div class="file-icon">
+                            <i class="fas fa-file-csv"></i>
+                        </div>
+                        <div class="file-details">
+                            <h5>terminal_data.csv</h5>
+                            <small>${terminalData.length.toLocaleString()} records</small>
+                        </div>
+                    </div>
+                    <span class="badge-uploaded">✓ Loaded</span>
+                `;
+                fileList.appendChild(fileItem);
+            }
+            
+            if (gateData.length > 0) {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <div class="file-info">
+                        <div class="file-icon">
+                            <i class="fas fa-file-csv"></i>
+                        </div>
+                        <div class="file-details">
+                            <h5>gate_data.csv</h5>
+                            <small>${gateData.length.toLocaleString()} records</small>
+                        </div>
+                    </div>
+                    <span class="badge-uploaded">✓ Loaded</span>
+                `;
+                fileList.appendChild(fileItem);
+            }
+            
+            // Add other data files
+            otherData.forEach((item, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <div class="file-info">
+                        <div class="file-icon">
+                            <i class="fas fa-file-csv"></i>
+                        </div>
+                        <div class="file-details">
+                            <h5>${item.filename}</h5>
+                            <small>${item.data.length.toLocaleString()} records</small>
+                        </div>
+                    </div>
+                    <span class="badge-uploaded">✓ Loaded</span>
+                `;
+                fileList.appendChild(fileItem);
+            });
+        }
+
+        function saveUploadedFilesList() {
+            try {
+                const fileItems = Array.from(fileList.querySelectorAll('.file-item'));
+                const filesInfo = fileItems.map(item => ({
+                    name: item.querySelector('h5').textContent,
+                    records: item.querySelector('small').textContent
+                }));
+                localStorage.setItem('airportUploadedFiles', JSON.stringify(filesInfo));
+            } catch (e) {
+                console.log('Could not save uploaded files list:', e);
+            }
         }
 
         // ==================== Airport Data Storage ====================
@@ -878,6 +1033,7 @@
             }
             
             updateDataStorageDisplay();
+            updateStorageStatus();
         }
 
         function parseCSVToObjects(csvArray) {
@@ -941,6 +1097,9 @@
             
             document.getElementById('avgScore').textContent = avgScore;
             document.getElementById('totalIssues').textContent = totalIssues;
+            
+            // Auto-save after updating stats
+            saveDataToStorage();
         }
 
         function findScoreValue(item) {
@@ -1513,14 +1672,87 @@
                 localStorage.setItem('airportCleanlinessData', JSON.stringify(airportData));
                 localStorage.setItem('airportDataLastUpdated', new Date().toISOString());
                 console.log('Airport data saved to local storage');
+                return true;
             } catch (e) {
                 console.error('Error saving to local storage:', e);
                 showStatus('Warning: Could not save data to browser storage (storage might be full)', 'error');
+                return false;
             }
         }
 
         // Auto-save every 30 seconds
         setInterval(saveDataToStorage, 30000);
+
+        // ==================== Storage Status Functions ====================
+        function updateStorageStatus() {
+            try {
+                const dataSize = JSON.stringify(airportData).length;
+                const maxSize = 5 * 1024 * 1024; // 5MB typical localStorage limit
+                
+                const percentUsed = (dataSize / maxSize) * 100;
+                const roundedPercent = Math.round(percentUsed);
+                
+                storagePercent.textContent = `${roundedPercent}%`;
+                
+                // Update indicator color based on usage
+                if (percentUsed > 90) {
+                    storageStatus.style.background = '#fce8e6';
+                    storageStatus.style.color = '#c5221f';
+                    showStatus('Warning: Browser storage is almost full. Export your data soon.', 'error');
+                } else if (percentUsed > 70) {
+                    storageStatus.style.background = '#fef7e0';
+                    storageStatus.style.color = '#b06000';
+                    showStatus(`Storage: ${roundedPercent}% used - Consider exporting data`, 'warning');
+                } else {
+                    storageStatus.style.background = '#e8f0fe';
+                    storageStatus.style.color = '#1a73e8';
+                }
+                
+                return percentUsed;
+            } catch (e) {
+                console.log('Error calculating storage status:', e);
+                return 0;
+            }
+        }
+
+        // ==================== Debug Functions ====================
+        function debugStorage() {
+            console.log('=== Airport Dashboard Storage Debug ===');
+            console.log('Airport data keys:', Object.keys(airportData));
+            console.log('Terminal records:', airportData.terminalData.length);
+            console.log('Gate records:', airportData.gateData.length);
+            console.log('Cleanliness records:', airportData.cleanlinessData.length);
+            console.log('Maintenance records:', airportData.maintenanceData.length);
+            console.log('Staff records:', airportData.staffData.length);
+            console.log('Other data files:', airportData.otherData.length);
+            
+            const dataSize = JSON.stringify(airportData).length;
+            console.log('Total data size:', formatBytes(dataSize));
+            
+            const saved = localStorage.getItem('airportCleanlinessData');
+            console.log('Data in localStorage:', saved ? 'Yes (' + formatBytes(saved.length) + ')' : 'No');
+            console.log('Last updated:', localStorage.getItem('airportDataLastUpdated'));
+            
+            // Show debug info in status
+            const totalRecords = airportData.terminalData.length + airportData.gateData.length + 
+                                airportData.cleanlinessData.length + airportData.maintenanceData.length + 
+                                airportData.staffData.length + airportData.otherData.reduce((sum, item) => sum + item.data.length, 0);
+            
+            showStatus(`Debug: ${totalRecords} total records | ${formatBytes(dataSize)} stored`, 'success');
+            console.log('==================');
+        }
+
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
 
         // ==================== Export/Clear Functions ====================
         function exportAllData() {
@@ -1568,6 +1800,7 @@
                 // Clear local storage
                 localStorage.removeItem('airportCleanlinessData');
                 localStorage.removeItem('airportDataLastUpdated');
+                localStorage.removeItem('airportUploadedFiles');
                 
                 // Reset data table
                 const container = document.getElementById('dataTableContainer');
@@ -1588,6 +1821,9 @@
                 
                 // Update last updated
                 document.getElementById('lastUpdated').textContent = 'Never';
+                
+                // Update storage status
+                updateStorageStatus();
                 
                 showStatus('All airport data has been cleared successfully!', 'success');
             }
